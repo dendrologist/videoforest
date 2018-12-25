@@ -1,8 +1,23 @@
 #!/usr/bin/bash
 
 # Dirty script to download titles from IMDB to make a videos
-# file. This writes down "Title (Year)" for all movies that have at
-# least 500 ratings.
+# file.
+#
+# This considers the most-rated:
+#   - 10,000 movies (including TV movies, TV specials, and videos)
+#   - 1,000 series (including mini-series)
+#   - 250 shorts (invluding TV shorts)
+#
+# It then orders each type based on the average user rating, followed
+# by total number of ratings, with the highest rated title with the
+# most ratings on top.
+#
+# Finally, we combine the lists in accordance with the ratios above so
+# that there is one short for every four series, and one series for
+# every ten movies.
+#
+# The combined list is written to "videos" with lines of the form
+# "Title (year) (type)".
 
 set -e
 
@@ -12,6 +27,25 @@ curl -LO https://datasets.imdbws.com/title.basics.tsv.gz
 curl -LO https://datasets.imdbws.com/title.ratings.tsv.gz
 gunzip title.basics.tsv.gz
 gunzip title.ratings.tsv.gz
-join -t '	' title.basics.tsv title.ratings.tsv | \
-  awk -F '	' '(NR > 1) && ($11 > 500) {print $3 " (" $6")"}' \
-  > ../videos
+
+sort -mn -k1,1 -k3,3  \
+  <(
+    join -t '	' title.basics.tsv title.ratings.tsv | \
+    awk -F '	' '\
+      ($2 == "movie") || ($2 == "tvMovie") || \
+      ($2 == "tvSpecial") || ($2 == "video") \
+      {print $10 "	" $11 "	" $3 " (" $6 ") (movie)"}' | \
+    sort -rn -k2 | head -n 10000 | sort -n -k1,1 -k2,2 | nl ) \
+  <(
+    join -t '	' title.basics.tsv title.ratings.tsv | \
+    awk -F '	' '\
+      ($2 == "tvMiniSeries") || ($2 == "tvSeries") \
+      {print $10 "	" $11 "	" $3 " (" $6 ") (series)"}' | \
+    sort -rn -k2 | head -n 1000 | sort -n -k1,1 -k2,2 | nl -i 10 -v 5 ) \
+  <(
+    join -t '	' title.basics.tsv title.ratings.tsv | \
+    awk -F '	' '\
+      ($2 == "short") || ($2 == "tvShort") \
+      {print $10 "	" $11 "	" $3 " (" $6 ") (short)"}' | \
+    sort -rn -k2 | head -n 250 | sort -n -k1,1 -k2,2 | nl -i 40 -v 20 ) | \
+  tac | cut -f4- > ../videos
